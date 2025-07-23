@@ -1,0 +1,13 @@
+server:
+  port: 8080  # Default port for the application
+  servlet:
+    context-path: /api
+
+logging:
+  level:
+    web: debug  # Enable debug logging for web-related components
+    sql: debug  # Enable debug logging for SQL queries
+
+spring:
+  profiles:
+    active: local  # Set the active profile to 'local'
