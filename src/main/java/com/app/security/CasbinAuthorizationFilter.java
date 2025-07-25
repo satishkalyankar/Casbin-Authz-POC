@@ -12,9 +12,11 @@ import org.casbin.jcasbin.main.Enforcer;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
+import org.springframework.util.AntPathMatcher;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.List;
 
 @Component
@@ -24,27 +26,31 @@ public class CasbinAuthorizationFilter extends OncePerRequestFilter {
 
     private final Enforcer enforcer;
 
+    private static final List<String> PUBLIC_ENDPOINTS = Arrays.asList(
+            "/api/auth/**",
+            "/api/swagger-ui/**",
+            "/api/swagger-ui.html",
+            "/api/api-docs/**"
+    );
+
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
 
-        // Skip the filter if no policies exist
         if (enforcer.getPolicy().isEmpty()) {
             filterChain.doFilter(request, response);
             return;
         }
 
-        // Get the requested path and method
         String path = request.getRequestURI();
         String method = request.getMethod();
 
-        // Skip the filter for permit-all paths (like /api/auth/**)
-        if (isPermitAllPath(path, method)) {
-            filterChain.doFilter(request, response);  // Allow access without authorization
+
+        if (isPermitAllPath(path)) {
+            filterChain.doFilter(request, response);
             return;
         }
 
-        // Proceed with normal authorization logic
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
 
         if (authentication != null && authentication.isAuthenticated() && authentication.getPrincipal() instanceof User user) {
@@ -54,7 +60,7 @@ public class CasbinAuthorizationFilter extends OncePerRequestFilter {
                 return;
             }
 
-            // Check if role-based or user-specific grouping policy allows access
+
             if (hasRoleBasedAccess(user, path, method) || hasUserGroupingAccess(user, path, method)) {
                 filterChain.doFilter(request, response);
             } else {
@@ -65,14 +71,12 @@ public class CasbinAuthorizationFilter extends OncePerRequestFilter {
         }
     }
 
-    // Method to check if the user is a super admin
     private boolean isSuperAdmin(User user) {
         return user.getRoles().stream().anyMatch(role -> role.name().equalsIgnoreCase("SUPER_ADMIN"));
     }
 
-    // Method to check if role-based policy allows access
     private boolean hasRoleBasedAccess(User user, String path, String method) {
-        // Iterate over the user's roles and check against the policy
+
         for (UserRole role : user.getRoles()) {
             if (enforcer.enforce(role.name(), path, method)) {
                 return true;
@@ -81,45 +85,37 @@ public class CasbinAuthorizationFilter extends OncePerRequestFilter {
         return false;
     }
 
-    // Method to check if user-specific grouping policy (ptype = g) allows access
     private boolean hasUserGroupingAccess(User user, String path, String method) {
-        // Iterate over each grouping policy
         for (List<String> policy : enforcer.getGroupingPolicy()) {
-            // Check if the user's email is present in the policy
             boolean containsUserEmail = policy.contains(user.getEmail());
-
-            // Debugging output to check if email is in the policy
             if (containsUserEmail) {
-                System.out.println("Policy contains user email: " + user.getEmail());
+                log.debug("Policy contains user email: " + user.getEmail());
             }
 
-            // Manually check the subject, object, and action manually in the policy
-            String policyEmail = policy.get(0); // Assuming email is the first entry in the grouping policy
-            String policyPath = policy.size() > 1 ? policy.get(1) : ""; // Assuming path is the second entry
-            String policyMethod = policy.size() > 2 ? policy.get(2) : ""; // Assuming method is the third entry
+            String policyEmail = policy.get(0);
+            String policyPath = policy.size() > 1 ? policy.get(1) : "";
+            String policyMethod = policy.size() > 2 ? policy.get(2) : "";
 
-            // Debug output to check the policy values
-            System.out.println("Checking policy for email: " + policyEmail + ", path: " + policyPath + ", method: " + policyMethod);
 
-            // Manually check if the policy matches the subject, object, and action
+            log.debug("Checking policy for email: " + policyEmail + ", path: " + policyPath + ", method: " + policyMethod);
+
+
             boolean matchesPolicy = policyEmail.equals(user.getEmail())
                     && policyPath.equals(path)
                     && policyMethod.equals(method);
 
             if (matchesPolicy) {
                 System.out.println("Policy matches: " + user.getEmail() + " has access to " + path + " with method " + method);
-                return true; // If policy matches, return true
+                return true;
             }
         }
 
-        // If no policy matched, deny access
-        System.out.println("No matching policy found for user: " + user.getEmail() + " on path: " + path + " with method: " + method);
+        log.debug("No matching policy found for user: " + user.getEmail() + " on path: " + path + " with method: " + method);
         return false;
     }
 
-    // Method to check if the path is permit-all (public) using Casbin's enforcement rules
-    private boolean isPermitAllPath(String path, String method) {
-        // Enforce Casbin policy for public access (sub = *, path = /api/auth/**, act = *)
-        return enforcer.enforce("*", path, method);  // '*' means any user (public)
+    private boolean isPermitAllPath(String path) {
+        AntPathMatcher pathMatcher = new AntPathMatcher();
+        return PUBLIC_ENDPOINTS.stream().anyMatch(pattern -> pathMatcher.match(pattern, path));
     }
 }

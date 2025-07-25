@@ -1,12 +1,12 @@
 server:
-  port: 8080  # Default port for the application
+  port: 8080
   servlet:
     context-path: /api
 
 logging:
   level:
-    web: debug  # Enable debug logging for web-related components
-    sql: debug  # Enable debug logging for SQL queries
+    web: debug
+    sql: debug
 
 spring:
   profiles:

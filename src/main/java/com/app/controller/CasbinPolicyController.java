@@ -9,12 +9,10 @@ import com.app.service.dto.PolicyRequest;
 import lombok.RequiredArgsConstructor;
 import org.casbin.jcasbin.main.Enforcer;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/policies")
@@ -72,8 +70,8 @@ public class CasbinPolicyController {
     }
 
     @DeleteMapping("/remove-role")
-    public ResponseEntity<ApiResponse<String>> removeUserFromRole(@RequestParam String username, @RequestParam String role) {
-        boolean removed = enforcer.removeGroupingPolicy(username, role);
+    public ResponseEntity<ApiResponse<String>> removeUserFromRole(@RequestBody PolicyRequest request) {
+        boolean removed = enforcer.removePolicy(request.getRole().name(), request.getPath(),request.getMethod());
         if (removed) {
             enforcer.savePolicy();
             return ResponseEntity.ok(new ApiResponse<>(true, "User removed from role.", null));
@@ -84,15 +82,12 @@ public class CasbinPolicyController {
 
     @DeleteMapping("/delete")
     public ResponseEntity<ApiResponse<String>> deletePolicy(@RequestBody PolicyRequest request) {
-        // Attempt to remove the policy
         boolean removed = enforcer.removePolicy(request.getRole().name(), request.getPath(), request.getMethod());
 
         if (removed) {
-            // If policy is removed successfully, save the changes
             enforcer.savePolicy();
             return ResponseEntity.ok(new ApiResponse<>(true, "Policy removed successfully.", null));
         } else {
-            // If the policy does not exist, return a bad request with the details of the failed policy
             return ResponseEntity.badRequest()
                     .body(new ApiResponse<>(false, "Policy does not exist for role: "
                             + request.getRole() + ", path: " + request.getPath() + ", method: " + request.getMethod(), null));
@@ -121,11 +116,6 @@ public class CasbinPolicyController {
             enforcer.savePolicy();
             return ResponseEntity.ok(new ApiResponse<>(true,"All policies added successfully",requests));
         } else {
-            // Generate a detailed message of which policies failed to be added
-            String failedPoliciesMessage = failedPolicies.stream()
-                    .map(policy -> "Role: " + policy.getRole() + ", Path: " + policy.getPath() + ", Method: " + policy.getMethod())
-                    .collect(Collectors.joining("\n"));
-
             return ResponseEntity.badRequest()
                     .body(new ApiResponse<>(false,"Some policies were not added because they already exist: ",failedPolicies));
         }
@@ -146,5 +136,21 @@ public class CasbinPolicyController {
         }
     }
 
+    @DeleteMapping("/remove-group")
+    public ResponseEntity<ApiResponse<String>> removeGroupPolicy(@RequestBody GroupPolicyRequest request) {
+        String username = request.getUsername();
+        User user = userRepository.findByEmail(username)
+                .orElseThrow(() -> new BadRequestAlertException("user not found: " + username));
+        String path = request.getPath();
+        String method = request.getMethod();
+        boolean removed = enforcer.removeGroupingPolicy(username, path, method);
+        if (removed) {
+            enforcer.savePolicy();
+            return ResponseEntity.ok(new ApiResponse<>(true, "User's group policy removed successfully.", null));
+        } else {
+            return ResponseEntity.badRequest()
+                    .body(new ApiResponse<>(false, "Group policy not found for user: " + username + ", path: " + path + ", method: " + method, null));
+        }
+    }
 
 }
